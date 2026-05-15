@@ -27,7 +27,7 @@ fun HomeScreen(model: MainViewModel) {
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Spacer(Modifier.weight(.75f))
-            Text("MemoCut", fontSize = 35.sp, fontWeight = FontWeight.Bold)
+            Text("MemoCut", fontSize = 50.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.weight(1f))
             Button({ model.push { ChooseVideoScreen(model) } }) { Text("開始遊戲") }
             Button({}) { Text("玩法說明") }

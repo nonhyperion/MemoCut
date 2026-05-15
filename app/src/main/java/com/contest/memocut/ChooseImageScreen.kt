@@ -71,7 +71,7 @@ fun ChooseImageScreen(model: MainViewModel, uri: Uri) {
                 Text("選取貼紙")
             }
             Button({
-                model.push { AskScreen(model, uri) }
+                model.push { AskScreen(model, uri, uriList) }
             }, enabled = uriList.size >= 3) {
                 Text("下一步")
             }
