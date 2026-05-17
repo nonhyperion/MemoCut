@@ -72,7 +72,7 @@ fun ChooseImageScreen(model: MainViewModel, uri: Uri) {
             }
             Button({
                 model.push { AskScreen(model, uri, uriList) }
-            }, enabled = uriList.size >= 3) {
+            }, enabled = uriList.isNotEmpty()) {
                 Text("下一步")
             }
         }
