@@ -18,10 +18,14 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -42,12 +46,18 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -68,15 +78,23 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerEvent
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ModifierLocalBeyondBoundsLayout
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.zIndex
+import androidx.core.net.toUri
 import kotlinx.coroutines.Runnable
+import kotlinx.coroutines.delay
 
 @Composable
 fun AskScreen(model: MainViewModel, videoUri: Uri, imageUri: List<Uri>) {
@@ -88,8 +106,40 @@ fun AskScreen(model: MainViewModel, videoUri: Uri, imageUri: List<Uri>) {
     val positionAndTimeImage = remember { mutableStateListOf<Sticker>() }
     var isPlaying by remember { mutableStateOf(false) }
     var addMenu by remember { mutableStateOf(false) }
+    var delArea by remember { mutableStateOf(false) }
+    var checkDialog by remember { mutableStateOf(false) }
+    var change by remember { mutableStateOf(0) }
+    var changeSticker by remember {
+        mutableStateOf<Sticker>(
+            Sticker(
+                "".toUri(),
+                0,
+                mutableStateOf(Offset.Zero),
+                mutableStateOf(0f)
+            )
+        )
+    }
+    val configuration = LocalConfiguration.current
+    val density = LocalDensity.current
 
+    LaunchedEffect(change) {
+        if (change > 1) {
+            with(density) {
+                if (changeSticker.offset.value.x > configuration.screenWidthDp.dp.toPx() - 100.dp.toPx()) {
+                    canUseImage += changeSticker.uri
+                    positionAndTimeImage.remove(changeSticker)
+                }
+            }
+            delArea = false
+            change = 0
+        }
+    }
 
+    if (checkDialog)
+        AlertDialog(
+            { checkDialog = false },
+            { TextButton({}) { Text("下一步") } },
+            text = { Text("出題完成?") })
 
     Box(
         Modifier
@@ -101,7 +151,6 @@ fun AskScreen(model: MainViewModel, videoUri: Uri, imageUri: List<Uri>) {
             }
     ) {
         for (i in positionAndTimeImage) {
-            println(position)
             if (position in i.time..(i.time + 5000))
                 UriImage(
                     i.uri, context, null, modifier = Modifier
@@ -112,9 +161,19 @@ fun AskScreen(model: MainViewModel, videoUri: Uri, imageUri: List<Uri>) {
                             scaleY = i.scale.value
                         }
                         .pointerInput(Unit) {
-                            detectTransformGestures(true) { centroid, pan, zoom, rotation ->
-                                i.scale.value *= zoom
-                                i.offset.value += pan * i.scale.value
+                            awaitEachGesture {
+                                if (!isPlaying) {
+                                    changeSticker = i
+                                    do {
+                                        delArea = true
+                                        if (change == 0)
+                                            change++
+                                        val event = awaitPointerEvent()
+                                        i.scale.value *= event.calculateZoom()
+                                        i.offset.value += event.calculatePan() * i.scale.value
+                                    } while (event.changes.any { it.pressed })
+                                    change++
+                                }
                             }
                         }
                         .zIndex(.5f)
@@ -168,7 +227,7 @@ fun AskScreen(model: MainViewModel, videoUri: Uri, imageUri: List<Uri>) {
                     ) {
                         IconButton(
                             { addMenu = !addMenu },
-                            modifier = Modifier.rotate(animateFloatAsState(if (addMenu) 45f else 0f).value)
+                            modifier = Modifier.rotate(animateFloatAsState(if (addMenu) -45f else 0f).value)
                         ) {
                             Icon(
                                 Icons.Default.Add,
@@ -177,7 +236,9 @@ fun AskScreen(model: MainViewModel, videoUri: Uri, imageUri: List<Uri>) {
                         }
                         Spacer(Modifier.weight(1f))
                         IconButton(
-                            {},
+                            {
+                                checkDialog = true
+                            },
                         ) {
                             Icon(
                                 Icons.Default.Check,
@@ -213,31 +274,91 @@ fun AskScreen(model: MainViewModel, videoUri: Uri, imageUri: List<Uri>) {
                     ) {
                         Text("我的貼圖", fontSize = 25.sp)
                         LazyColumn(
-                            Modifier.fillMaxSize()
+                            Modifier.fillMaxSize(),
+                            horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             items(canUseImage, key = { it }) {
+                                var y by remember { mutableStateOf(0f) }
                                 UriImage(
                                     it,
                                     context,
                                     null,
                                     modifier = Modifier
+                                        .animateItem()
+                                        .onGloballyPositioned { pos ->
+                                            y = pos.positionInWindow().y
+                                            println(y)
+                                        }
+                                        .size(150.dp)
                                         .pointerInput(Unit) {
                                             val img =
                                                 Sticker(
                                                     it,
                                                     position,
-                                                    mutableStateOf(Offset.Zero),
+                                                    mutableStateOf(Offset(0f, y)),
                                                     mutableStateOf(1f)
                                                 )
 
                                             detectDragGesturesAfterLongPress(onDrag = { change, offset ->
-                                                if (positionAndTimeImage.firstOrNull { e -> e.uri == it } == null)
+                                                println(img.offset.value.y)
+                                                if (positionAndTimeImage.firstOrNull { e -> e.uri == it } == null) {
                                                     positionAndTimeImage += img
+                                                }
                                                 img.offset.value += offset
                                             }, onDragEnd = { canUseImage.remove(it) })
                                         }
                                 )
                             }
+                            item {
+                                Column(
+                                    Modifier.animateItem(),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    HorizontalDivider(Modifier.padding(10.dp), thickness = 2.dp)
+                                    Text("已使用貼圖", fontSize = 25.sp)
+                                }
+                            }
+                            items(positionAndTimeImage, key = { "${it.uri}${it.time}" }) {
+                                Row(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .animateItem(),
+                                    horizontalArrangement = Arrangement.Center,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    UriImage(
+                                        it.uri,
+                                        context,
+                                        null,
+                                        modifier = Modifier
+                                            .size(100.dp)
+                                    )
+                                    Text(
+                                        "在${
+                                            (it.time / 60000).toString().padStart(2, '0')
+                                        }:${
+                                            (it.time.toFloat() / 1000 % 60).toInt().toString()
+                                                .padStart(2, '0')
+                                        }"
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.weight(1f))
+                AnimatedVisibility(delArea) {
+                    Card(
+                        Modifier
+                            .fillMaxHeight()
+                            .width(30.dp), colors = CardDefaults.cardColors(
+                            containerColor = Color(
+                                0xFFFA4D4D
+                            )
+                        )
+                    ) {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Icon(Icons.Default.Delete, null, tint = Color.White)
                         }
                     }
                 }
