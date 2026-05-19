@@ -36,14 +36,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -68,7 +66,6 @@ import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -77,7 +74,7 @@ import androidx.core.net.toUri
 import kotlinx.coroutines.Runnable
 
 @Composable
-fun AskScreen(model: MainViewModel, videoUri: Uri, imageUri: List<Uri>) {
+fun AnsScreen(model: MainViewModel, videoUri: Uri, imageUri: List<Uri>) {
     val canUseImage = remember { imageUri.toMutableStateList() }
     val context = LocalContext.current
     var videoDuration by remember { mutableIntStateOf(1) }
@@ -162,7 +159,6 @@ fun AskScreen(model: MainViewModel, videoUri: Uri, imageUri: List<Uri>) {
                                             change++
                                         val event = awaitPointerEvent()
                                         i.scale.value *= event.calculateZoom()
-                                        i.scale.value.coerceIn(.5f, 2f)
                                         i.offset.value += event.calculatePan() * i.scale.value
                                     } while (event.changes.any { it.pressed })
                                     change++
@@ -187,9 +183,6 @@ fun AskScreen(model: MainViewModel, videoUri: Uri, imageUri: List<Uri>) {
                             }
                         }
                         handler.post(runnable)
-                    }
-                    setOnCompletionListener {
-                        isPlaying = false
                     }
                 }
             }, modifier = Modifier.fillMaxSize()
@@ -399,34 +392,5 @@ fun AskScreen(model: MainViewModel, videoUri: Uri, imageUri: List<Uri>) {
                 }
             }
         }
-    }
-}
-
-@Composable
-fun VideoSeekBar(
-    isPlay: Boolean,
-    onPause: () -> Unit,
-    onResume: () -> Unit,
-    onChange: (Float) -> Unit,
-    value: Float,
-    modifier: Modifier = Modifier,
-) {
-    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
-        IconButton({
-            if (isPlay)
-                onPause()
-            else
-                onResume()
-        }) {
-            if (isPlay)
-                Icon(painterResource(R.drawable.baseline_pause_24), null)
-            else
-                Icon(Icons.Default.PlayArrow, null)
-        }
-        Slider(
-            value,
-            onChange,
-            modifier = Modifier.weight(1f)
-        )
     }
 }
