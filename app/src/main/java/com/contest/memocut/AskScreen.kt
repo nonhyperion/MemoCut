@@ -3,6 +3,7 @@ package com.contest.memocut
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.widget.Toast
 import android.widget.VideoView
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
@@ -183,7 +184,7 @@ fun AskScreen(model: MainViewModel, videoUri: Uri, imageUri: List<Uri>) {
                         val runnable = object : Runnable {
                             override fun run() {
                                 position = currentPosition
-                                handler.postDelayed(this, 500)
+                                handler.postDelayed(this, 10)
                             }
                         }
                         handler.post(runnable)
@@ -209,17 +210,19 @@ fun AskScreen(model: MainViewModel, videoUri: Uri, imageUri: List<Uri>) {
                     )
                 ) { it * -1 }) {
                 Column() {
-                    Row(
+                    Spacer(
                         Modifier
                             .fillMaxWidth()
                             .background(Color.White)
                             .padding(top = 25.dp)
-                    ) { }
+                    )
                     Row(
                         Modifier
                             .background(Color.White)
                             .padding(vertical = 5.dp)
                             .fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         IconButton(
                             { addMenu = !addMenu },
@@ -230,7 +233,7 @@ fun AskScreen(model: MainViewModel, videoUri: Uri, imageUri: List<Uri>) {
                                 null,
                             )
                         }
-                        Spacer(Modifier.weight(1f))
+                        Text("出題模式", fontSize = 25.sp)
                         IconButton(
                             {
                                 checkDialog = true
@@ -295,11 +298,14 @@ fun AskScreen(model: MainViewModel, videoUri: Uri, imageUri: List<Uri>) {
                                                 )
 
                                             detectDragGesturesAfterLongPress(onDrag = { change, offset ->
-                                                if (stickers.firstOrNull { e -> e.uri == it } == null) {
+                                                if (stickers.firstOrNull { e -> e.uri == it } == null && stickers.find { it.time in (position - 1)..(position + 1) } == null) {
                                                     stickers += img
                                                 }
                                                 img.offset.value += offset
-                                            }, onDragEnd = { canUseImage.remove(it) })
+                                            }, onDragEnd = {
+                                                if (stickers.find { e -> e.uri == it } != null)
+                                                    canUseImage.remove(it)
+                                            })
                                         }
                                 )
                             }
@@ -387,7 +393,14 @@ fun AskScreen(model: MainViewModel, videoUri: Uri, imageUri: List<Uri>) {
                             videoView?.start()
                             isPlaying = !isPlaying
                         },
-                        { videoView?.seekTo((it * videoDuration).toInt()) },
+                        {
+                            videoView?.seekTo((it * videoDuration).toInt())
+                        },
+                        {
+                            videoView?.start()
+                            Thread.sleep(200)
+                            videoView?.pause()
+                        },
                         position / videoDuration.toFloat(),
                         modifier = Modifier.fillMaxWidth(.95f)
                     )
@@ -408,6 +421,7 @@ fun VideoSeekBar(
     onPause: () -> Unit,
     onResume: () -> Unit,
     onChange: (Float) -> Unit,
+    onChangeEnd: () -> Unit = {},
     value: Float,
     modifier: Modifier = Modifier,
 ) {
@@ -426,6 +440,7 @@ fun VideoSeekBar(
         Slider(
             value,
             onChange,
+            onValueChangeFinished = onChangeEnd,
             modifier = Modifier.weight(1f)
         )
     }

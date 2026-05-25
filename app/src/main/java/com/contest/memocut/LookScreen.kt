@@ -67,7 +67,12 @@ fun LookScreen(model: MainViewModel, videoUri: Uri, stickers: List<Sticker>) {
     if (isEnd)
         AlertDialog(
             {},
-            { IconButton({}, Modifier.width(100.dp)) { Text("開始答題") } },
+            {
+                IconButton(
+                    { model.push { AnsScreen(model, videoUri, stickers) } },
+                    Modifier.width(100.dp)
+                ) { Text("開始答題") }
+            },
             dismissButton = {
                 IconButton({
                     isEnd = false
@@ -112,7 +117,7 @@ fun LookScreen(model: MainViewModel, videoUri: Uri, stickers: List<Sticker>) {
                         val runnable = object : Runnable {
                             override fun run() {
                                 position = currentPosition
-                                handler.postDelayed(this, 500)
+                                handler.postDelayed(this, 10)
                             }
                         }
                         handler.post(runnable)
@@ -156,7 +161,14 @@ fun LookScreen(model: MainViewModel, videoUri: Uri, stickers: List<Sticker>) {
                             videoView?.start()
                             isPlaying = !isPlaying
                         },
-                        { videoView?.seekTo((it * videoDuration).toInt()) },
+                        {
+                            videoView?.seekTo((it * videoDuration).toInt())
+                        },
+                        {
+                            videoView?.start()
+                            Thread.sleep(200)
+                            videoView?.pause()
+                        },
                         position / videoDuration.toFloat(),
                         modifier = Modifier.fillMaxWidth(.95f)
                     )

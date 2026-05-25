@@ -21,6 +21,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
@@ -71,6 +72,7 @@ fun ChooseImageScreen(model: MainViewModel, uri: Uri) {
                 Text("選取貼紙")
             }
             Button({
+                model.canUseImage = uriList.toMutableStateList()
                 model.push { AskScreen(model, uri, uriList) }
             }, enabled = uriList.isNotEmpty()) {
                 Text("下一步")
