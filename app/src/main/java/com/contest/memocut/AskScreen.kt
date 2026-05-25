@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -70,6 +71,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -79,12 +81,10 @@ import kotlinx.coroutines.Runnable
 
 @Composable
 fun AskScreen(model: MainViewModel, videoUri: Uri, imageUri: List<Uri>) {
-    val canUseImage = remember { imageUri.toMutableStateList() }
     val context = LocalContext.current
     var videoDuration by remember { mutableIntStateOf(1) }
     var position by remember { mutableIntStateOf(0) }
     var videoView: VideoView? by remember { mutableStateOf(null) }
-    val stickers = remember { mutableStateListOf<Sticker>() }
     var isPlaying by remember { mutableStateOf(false) }
     var addMenu by remember { mutableStateOf(false) }
     var delArea by remember { mutableStateOf(false) }
@@ -107,8 +107,8 @@ fun AskScreen(model: MainViewModel, videoUri: Uri, imageUri: List<Uri>) {
         if (change > 1) {
             with(density) {
                 if (changeSticker.offset.value.x > configuration.screenWidthDp.dp.toPx() - 100.dp.toPx()) {
-                    canUseImage += changeSticker.uri
-                    stickers.remove(changeSticker)
+                    model.canUseImage += changeSticker.uri
+                    model.stickers.remove(changeSticker)
                 }
             }
             delArea = false
@@ -125,7 +125,7 @@ fun AskScreen(model: MainViewModel, videoUri: Uri, imageUri: List<Uri>) {
                         LookScreen(
                             model,
                             videoUri,
-                            stickers
+                            model.stickers
                         )
                     }
                 }) { Text("下一步") }
@@ -142,59 +142,67 @@ fun AskScreen(model: MainViewModel, videoUri: Uri, imageUri: List<Uri>) {
                 isPlaying = false
             }
     ) {
-        for (i in stickers) {
-            if (position in i.time..(i.time + 5000))
-                UriImage(
-                    i.uri, context, null, modifier = Modifier
-                        .size(150.dp)
-                        .graphicsLayer {
-                            translationX = i.offset.value.x
-                            translationY = i.offset.value.y
-                            scaleX = i.scale.value
-                            scaleY = i.scale.value
-                        }
-                        .pointerInput(Unit) {
-                            awaitEachGesture {
-                                if (!isPlaying) {
-                                    changeSticker = i
-                                    do {
-                                        delArea = true
-                                        if (change == 0)
-                                            change++
-                                        val event = awaitPointerEvent()
-                                        i.scale.value *= event.calculateZoom()
-                                        i.scale.value.coerceIn(.5f, 2f)
-                                        i.offset.value += event.calculatePan() * i.scale.value
-                                    } while (event.changes.any { it.pressed })
-                                    change++
+        Box() {
+            for (i in model.stickers) {
+                if (position in i.time..(i.time + 5000))
+                    UriImage(
+                        i.uri, context, null, modifier = Modifier
+                            .size(150.dp)
+                            .offset({
+                                IntOffset(
+                                    i.offset.value.x.toInt(),
+                                    i.offset.value.y.toInt()
+                                )
+                            })
+                            .graphicsLayer {
+//                                translationX = i.offset.value.x
+//                                translationY = i.offset.value.y
+                                scaleX = i.scale.value
+                                scaleY = i.scale.value
+                            }
+                            .pointerInput(Unit) {
+                                awaitEachGesture {
+                                    if (!isPlaying) {
+                                        changeSticker = i
+                                        do {
+                                            delArea = true
+                                            if (change == 0)
+                                                change++
+                                            val event = awaitPointerEvent()
+                                            i.scale.value *= event.calculateZoom()
+                                            i.scale.value.coerceIn(.5f, 2f)
+                                            i.offset.value += event.calculatePan() * i.scale.value
+                                        } while (event.changes.any { it.pressed })
+                                        change++
+                                    }
                                 }
                             }
-                        }
-                        .zIndex(.5f)
-                )
-        }
-        AndroidView(
-            factory = { context ->
-                VideoView(context).apply {
-                    setVideoURI(videoUri)
-                    setOnPreparedListener {
-                        videoDuration = duration
-                        videoView = this
-                        val handler = Handler(Looper.getMainLooper())
-                        val runnable = object : Runnable {
-                            override fun run() {
-                                position = currentPosition
-                                handler.postDelayed(this, 10)
+                            .zIndex(.5f)
+                    )
+            }
+            AndroidView(
+                factory = { context ->
+                    VideoView(context).apply {
+                        setVideoURI(videoUri)
+                        setOnPreparedListener {
+                            videoDuration = duration
+                            videoView = this
+                            val handler = Handler(Looper.getMainLooper())
+                            val runnable = object : Runnable {
+                                override fun run() {
+                                    position = currentPosition
+                                    handler.postDelayed(this, 10)
+                                }
                             }
+                            handler.post(runnable)
                         }
-                        handler.post(runnable)
+                        setOnCompletionListener {
+                            isPlaying = false
+                        }
                     }
-                    setOnCompletionListener {
-                        isPlaying = false
-                    }
-                }
-            }, modifier = Modifier.fillMaxSize()
-        )
+                }, modifier = Modifier.fillMaxSize()
+            )
+        }
         Column(
             Modifier
                 .fillMaxSize()
@@ -276,7 +284,7 @@ fun AskScreen(model: MainViewModel, videoUri: Uri, imageUri: List<Uri>) {
                             Modifier.fillMaxSize(),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            items(canUseImage, key = { it.hashCode() }) {
+                            items(model.canUseImage, key = { it.hashCode() }) {
                                 var y by remember { mutableStateOf(0f) }
                                 UriImage(
                                     it,
@@ -298,19 +306,19 @@ fun AskScreen(model: MainViewModel, videoUri: Uri, imageUri: List<Uri>) {
                                                 )
 
                                             detectDragGesturesAfterLongPress(onDrag = { change, offset ->
-                                                if (stickers.firstOrNull { e -> e.uri == it } == null && stickers.find { it.time in (position - 1)..(position + 1) } == null) {
-                                                    stickers += img
+                                                if (model.stickers.firstOrNull { e -> e.uri == it } == null && model.stickers.find { it.time in (position - 1)..(position + 1) } == null) {
+                                                    model.stickers += img
                                                 }
                                                 img.offset.value += offset
                                             }, onDragEnd = {
-                                                if (stickers.find { e -> e.uri == it } != null)
-                                                    canUseImage.remove(it)
+                                                if (model.stickers.find { e -> e.uri == it } != null)
+                                                    model.canUseImage.remove(it)
                                             })
                                         }
                                 )
                             }
                             item {
-                                AnimatedVisibility(stickers.isNotEmpty()) {
+                                AnimatedVisibility(model.stickers.isNotEmpty()) {
                                     Column(
                                         Modifier.animateItem(),
                                         horizontalAlignment = Alignment.CenterHorizontally
@@ -320,7 +328,7 @@ fun AskScreen(model: MainViewModel, videoUri: Uri, imageUri: List<Uri>) {
                                     }
                                 }
                             }
-                            items(stickers, key = { "${it.uri}${it.time}" }) {
+                            items(model.stickers, key = { "${it.uri}${it.time}" }) {
                                 Row(
                                     Modifier
                                         .fillMaxWidth()

@@ -13,6 +13,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val screen get() = screens.lastOrNull()
 
     var canUseImage = mutableStateListOf<Uri>()
+    val stickers = mutableStateListOf<Sticker>()
 
     fun pop() {
         screens.removeLastOrNull()
