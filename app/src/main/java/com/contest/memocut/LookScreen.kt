@@ -46,14 +46,18 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ModifierLocalBeyondBoundsLayout
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.zIndex
 import androidx.core.net.toUri
 import kotlinx.coroutines.Runnable
+import kotlin.math.min
 
 @Composable
 fun LookScreen(model: MainViewModel, videoUri: Uri, stickers: List<Sticker>) {
@@ -61,8 +65,10 @@ fun LookScreen(model: MainViewModel, videoUri: Uri, stickers: List<Sticker>) {
     var videoDuration by remember { mutableIntStateOf(1) }
     var position by remember { mutableIntStateOf(0) }
     var videoView: VideoView? by remember { mutableStateOf(null) }
+    var videoViewSize by remember { mutableStateOf(IntSize.Zero) }
     var isPlaying by remember { mutableStateOf(false) }
     var isEnd by remember { mutableStateOf(false) }
+    val density = LocalDensity.current
 
     if (isEnd)
         AlertDialog(
@@ -90,45 +96,60 @@ fun LookScreen(model: MainViewModel, videoUri: Uri, stickers: List<Sticker>) {
             .clickable(indication = null, interactionSource = null) {
                 videoView?.pause()
                 isPlaying = false
-            }
+            },
+        contentAlignment = Alignment.Center
     ) {
-        for (i in stickers) {
-            if (position in i.time..(i.time + 5000))
-                UriImage(
-                    i.uri, context, null, modifier = Modifier
-                        .size(150.dp)
-                        .graphicsLayer {
-                            translationX = i.offset.value.x
-                            translationY = i.offset.value.y
-                            scaleX = i.scale.value
-                            scaleY = i.scale.value
-                        }
-                        .zIndex(1f)
-                )
-        }
-        AndroidView(
-            factory = { context ->
-                VideoView(context).apply {
-                    setVideoURI(videoUri)
-                    setOnPreparedListener {
-                        videoDuration = duration
-                        videoView = this
-                        val handler = Handler(Looper.getMainLooper())
-                        val runnable = object : Runnable {
-                            override fun run() {
-                                position = currentPosition
-                                handler.postDelayed(this, 10)
+        Box() {
+            for (i in stickers) {
+                if (position in i.time..(i.time + 5000))
+                    UriImage(
+                        i.uri, context, null, modifier = Modifier
+                            .size(with(density) {
+                                val maxPx = min(videoViewSize.width, videoViewSize.height)
+
+                                val maxDp = if (maxPx > 0) {
+                                    (maxPx / with(density) { 1.dp.toPx() }).dp
+                                } else {
+                                    Dp.Infinity // 或直接跳過
+                                }
+                                (150.dp * i.scale.value).coerceIn(
+                                    1.dp,
+                                    maxDp
+                                )
+                            })
+                            .graphicsLayer {
+                                translationX = i.offset.value.x * videoViewSize.width
+                                translationY = i.offset.value.y * videoViewSize.height
                             }
+                            .zIndex(1f)
+                    )
+            }
+            AndroidView(
+                factory = { context ->
+                    VideoView(context).apply {
+                        setVideoURI(videoUri)
+                        setOnPreparedListener {
+                            videoDuration = duration
+                            videoView = this
+                            val handler = Handler(Looper.getMainLooper())
+                            val runnable = object : Runnable {
+                                override fun run() {
+                                    position = currentPosition
+                                    handler.postDelayed(this, 10)
+                                }
+                            }
+                            handler.post(runnable)
                         }
-                        handler.post(runnable)
+                        setOnCompletionListener {
+                            isPlaying = false
+                            isEnd = true
+                        }
                     }
-                    setOnCompletionListener {
-                        isPlaying = false
-                        isEnd = true
-                    }
+                }, modifier = Modifier.onSizeChanged {
+                    videoViewSize = it
                 }
-            }, modifier = Modifier.fillMaxSize()
-        )
+            )
+        }
         Column(
             Modifier
                 .fillMaxSize()

@@ -53,6 +53,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -72,11 +73,13 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -92,15 +95,23 @@ fun AskScreen(model: MainViewModel, videoUri: Uri, imageUri: List<Uri>) {
     val context = LocalContext.current
     var videoDuration by remember { mutableIntStateOf(1) }
     var videoViewSize by remember { mutableStateOf(IntSize.Zero) }
-    var imageSize by remember { mutableStateOf(IntSize.Zero) }
     var position by remember { mutableIntStateOf(0) }
     var videoView: VideoView? by remember { mutableStateOf(null) }
+    var videoViewPos by remember { mutableStateOf(Rect.Zero) }
     var isPlaying by remember { mutableStateOf(false) }
     var addMenu by remember { mutableStateOf(false) }
-    var delArea by remember { mutableStateOf(false) }
     var checkDialog by remember { mutableStateOf(false) }
+    var placeImage by remember { mutableStateOf<Sticker?>(null) }
     val configuration = LocalConfiguration.current
     val density = LocalDensity.current
+    var imageSize by remember {
+        mutableStateOf(with(density) {
+            IntSize(
+                150.dp.toPx().toInt(),
+                150.dp.toPx().toInt()
+            )
+        })
+    }
 
 
 
@@ -131,6 +142,17 @@ fun AskScreen(model: MainViewModel, videoUri: Uri, imageUri: List<Uri>) {
             },
         contentAlignment = Alignment.Center
     ) {
+        placeImage?.let {
+            UriImage(
+                it.uri, context, null, modifier = Modifier
+                    .size(150.dp)
+                    .align(Alignment.TopStart)
+                    .graphicsLayer {
+                        translationX = it.offset.value.x
+                        translationY = it.offset.value.y
+                    }
+                    .zIndex(1f))
+        }
         Box(
             Modifier
                 .background(Color.White),
@@ -140,46 +162,58 @@ fun AskScreen(model: MainViewModel, videoUri: Uri, imageUri: List<Uri>) {
                     UriImage(
                         i.uri, context, null, modifier = Modifier
                             .size(with(density) {
+                                val maxPx = min(videoViewSize.width, videoViewSize.height)
+
+                                val maxDp = if (maxPx > 0) {
+                                    (maxPx / with(density) { 1.dp.toPx() }).dp
+                                } else {
+                                    Dp.Infinity // 或直接跳過
+                                }
                                 (150.dp * i.scale.value).coerceIn(
                                     1.dp,
-                                    (min(
-                                        videoViewSize.width,
-                                        videoViewSize.height
-                                    ) / 1.dp.toPx()).dp
+                                    maxDp
                                 )
                             })
                             .graphicsLayer {
-                                translationX = i.offset.value.x
-                                translationY = i.offset.value.y
-//                                scaleX = i.scale.value
-//                                scaleY = i.scale.value
+                                translationX = i.offset.value.x * videoViewSize.width
+                                translationY = i.offset.value.y * videoViewSize.height
                             }
                             .pointerInput(Unit) {
                                 detectTransformGestures(true) { centroid, pan, zoom, rotation ->
-                                    val x = (i.offset.value.x + pan.x).coerceIn(
-                                        0f,
-                                        (videoViewSize.width - imageSize.width).toFloat()
-                                    )
-                                    val y = (i.offset.value.y + pan.y).coerceIn(
-                                        0f,
-                                        (videoViewSize.height - imageSize.height).toFloat()
-                                    )
+                                    val x =
+                                        (i.offset.value.x + pan.x / videoViewSize.width.toFloat()).coerceIn(
+                                            0f,
+                                            1f - (imageSize.width * i.scale.value / videoViewSize.width)
+                                            // (videoViewSize.width - imageSize.width).toFloat()
+                                        )
+                                    val y =
+                                        (i.offset.value.y + pan.y / videoViewSize.height.toFloat()).coerceIn(
+                                            0f,
+                                            1f - (imageSize.height * i.scale.value / videoViewSize.height)
+                                            //(videoViewSize.height - imageSize.height).toFloat()
+                                        )
                                     i.offset.value = Offset(x, y)
 
                                     val oldScale = i.scale.value
-                                    val newScale = (i.scale.value * zoom).coerceIn(0.5f, 5f)
+                                    val newScale = (i.scale.value * zoom).coerceIn(
+                                        0.5f,
+                                        min(videoViewSize.width, videoViewSize.height) / with(
+                                            density
+                                        ) { 150.dp.toPx() })
 
                                     val scaleFactor = newScale / oldScale
-
-                                    i.offset.value =
-                                        (i.offset.value + centroid - centroid * scaleFactor)
+                                    val origin = i.offset.value.copy(
+                                        x = x * videoViewSize.width,
+                                        y = y * videoViewSize.height
+                                    ) + centroid - centroid * scaleFactor
+                                    i.offset.value = Offset(
+                                        origin.x / videoViewSize.width,
+                                        origin.y / videoViewSize.height
+                                    )
                                     i.scale.value = newScale
                                 }
                             }
                             .zIndex(.5f)
-                            .onSizeChanged {
-                                imageSize = it
-                            }
                     )
             }
             AndroidView(
@@ -203,6 +237,7 @@ fun AskScreen(model: MainViewModel, videoUri: Uri, imageUri: List<Uri>) {
                         }
                     }
                 }, modifier = Modifier
+                    .onGloballyPositioned { videoViewPos = it.boundsInWindow() }
                     .onSizeChanged {
                         videoViewSize = it
                     }
@@ -290,7 +325,7 @@ fun AskScreen(model: MainViewModel, videoUri: Uri, imageUri: List<Uri>) {
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             items(model.canUseImage, key = { it.hashCode() }) {
-                                var y by remember { mutableStateOf(0f) }
+                                var y by remember { mutableFloatStateOf(0f) }
                                 UriImage(
                                     it,
                                     context,
@@ -307,17 +342,28 @@ fun AskScreen(model: MainViewModel, videoUri: Uri, imageUri: List<Uri>) {
                                                     it,
                                                     position,
                                                     mutableStateOf(Offset(0f, y)),
-                                                    mutableStateOf(1f)
+                                                    mutableFloatStateOf(1f)
                                                 )
 
                                             detectDragGesturesAfterLongPress(onDrag = { change, offset ->
-                                                if (model.stickers.firstOrNull { e -> e.uri == it } == null && model.stickers.find { it.time in (position - 1)..(position + 1) } == null) {
-                                                    model.stickers += img
-                                                }
+                                                placeImage = img
                                                 img.offset.value += offset
                                             }, onDragEnd = {
+//                                                if (model.stickers.firstOrNull { e -> e.uri == it } == null && model.stickers.find { it.time in (position - 1)..(position + 1) } == null) {
+                                                if (videoViewPos.contains(img.offset.value) && model.stickers.find { it.time in (position - 1)..(position + 1) } == null)
+                                                    model.stickers += img.copy(
+                                                        offset = mutableStateOf(
+                                                            Offset(
+                                                                (img.offset.value.x - videoViewPos.left) / videoViewSize.width,
+                                                                (img.offset.value.y - videoViewPos.top) / videoViewSize.height
+                                                            )
+                                                        )
+                                                    )
+
                                                 if (model.stickers.find { e -> e.uri == it } != null)
                                                     model.canUseImage.remove(it)
+                                                img.offset.value = Offset(0f, y)
+                                                placeImage = null
                                             })
                                         }
                                 )
