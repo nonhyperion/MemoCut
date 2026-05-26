@@ -19,6 +19,7 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,6 +32,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -62,59 +64,45 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.zIndex
 import androidx.core.net.toUri
 import kotlinx.coroutines.Runnable
+import kotlin.math.min
 
 @Composable
 fun AskScreen(model: MainViewModel, videoUri: Uri, imageUri: List<Uri>) {
     val context = LocalContext.current
     var videoDuration by remember { mutableIntStateOf(1) }
+    var videoViewSize by remember { mutableStateOf(IntSize.Zero) }
+    var imageSize by remember { mutableStateOf(IntSize.Zero) }
     var position by remember { mutableIntStateOf(0) }
     var videoView: VideoView? by remember { mutableStateOf(null) }
     var isPlaying by remember { mutableStateOf(false) }
     var addMenu by remember { mutableStateOf(false) }
     var delArea by remember { mutableStateOf(false) }
     var checkDialog by remember { mutableStateOf(false) }
-    var change by remember { mutableStateOf(0) }
-    var changeSticker by remember {
-        mutableStateOf(
-            Sticker(
-                "".toUri(),
-                0,
-                mutableStateOf(Offset.Zero),
-                mutableStateOf(0f)
-            )
-        )
-    }
     val configuration = LocalConfiguration.current
     val density = LocalDensity.current
 
-    LaunchedEffect(change) {
-        if (change > 1) {
-            with(density) {
-                if (changeSticker.offset.value.x > configuration.screenWidthDp.dp.toPx() - 100.dp.toPx()) {
-                    model.canUseImage += changeSticker.uri
-                    model.stickers.remove(changeSticker)
-                }
-            }
-            delArea = false
-            change = 0
-        }
-    }
+
 
     if (checkDialog)
         AlertDialog(
@@ -140,44 +128,58 @@ fun AskScreen(model: MainViewModel, videoUri: Uri, imageUri: List<Uri>) {
             .clickable(indication = null, interactionSource = null) {
                 videoView?.pause()
                 isPlaying = false
-            }
+            },
+        contentAlignment = Alignment.Center
     ) {
-        Box() {
+        Box(
+            Modifier
+                .background(Color.White),
+        ) {
             for (i in model.stickers) {
                 if (position in i.time..(i.time + 5000))
                     UriImage(
                         i.uri, context, null, modifier = Modifier
-                            .size(150.dp)
-                            .offset({
-                                IntOffset(
-                                    i.offset.value.x.toInt(),
-                                    i.offset.value.y.toInt()
+                            .size(with(density) {
+                                (150.dp * i.scale.value).coerceIn(
+                                    1.dp,
+                                    (min(
+                                        videoViewSize.width,
+                                        videoViewSize.height
+                                    ) / 1.dp.toPx()).dp
                                 )
                             })
                             .graphicsLayer {
-//                                translationX = i.offset.value.x
-//                                translationY = i.offset.value.y
-                                scaleX = i.scale.value
-                                scaleY = i.scale.value
+                                translationX = i.offset.value.x
+                                translationY = i.offset.value.y
+//                                scaleX = i.scale.value
+//                                scaleY = i.scale.value
                             }
                             .pointerInput(Unit) {
-                                awaitEachGesture {
-                                    if (!isPlaying) {
-                                        changeSticker = i
-                                        do {
-                                            delArea = true
-                                            if (change == 0)
-                                                change++
-                                            val event = awaitPointerEvent()
-                                            i.scale.value *= event.calculateZoom()
-                                            i.scale.value.coerceIn(.5f, 2f)
-                                            i.offset.value += event.calculatePan() * i.scale.value
-                                        } while (event.changes.any { it.pressed })
-                                        change++
-                                    }
+                                detectTransformGestures(true) { centroid, pan, zoom, rotation ->
+                                    val x = (i.offset.value.x + pan.x).coerceIn(
+                                        0f,
+                                        (videoViewSize.width - imageSize.width).toFloat()
+                                    )
+                                    val y = (i.offset.value.y + pan.y).coerceIn(
+                                        0f,
+                                        (videoViewSize.height - imageSize.height).toFloat()
+                                    )
+                                    i.offset.value = Offset(x, y)
+
+                                    val oldScale = i.scale.value
+                                    val newScale = (i.scale.value * zoom).coerceIn(0.5f, 5f)
+
+                                    val scaleFactor = newScale / oldScale
+
+                                    i.offset.value =
+                                        (i.offset.value + centroid - centroid * scaleFactor)
+                                    i.scale.value = newScale
                                 }
                             }
                             .zIndex(.5f)
+                            .onSizeChanged {
+                                imageSize = it
+                            }
                     )
             }
             AndroidView(
@@ -200,7 +202,10 @@ fun AskScreen(model: MainViewModel, videoUri: Uri, imageUri: List<Uri>) {
                             isPlaying = false
                         }
                     }
-                }, modifier = Modifier.fillMaxSize()
+                }, modifier = Modifier
+                    .onSizeChanged {
+                        videoViewSize = it
+                    }
             )
         }
         Column(
@@ -343,34 +348,30 @@ fun AskScreen(model: MainViewModel, videoUri: Uri, imageUri: List<Uri>) {
                                         modifier = Modifier
                                             .size(100.dp)
                                     )
-                                    TextButton({ videoView?.seekTo(it.time) }) {
-                                        Text(
-                                            "在${
-                                                (it.time / 60000).toString().padStart(2, '0')
-                                            }:${
-                                                (it.time.toFloat() / 1000 % 60).toInt().toString()
-                                                    .padStart(2, '0')
-                                            }"
-                                        )
+                                    Column() {
+                                        IconButton({
+                                            model.canUseImage += it.uri
+                                            model.stickers.remove(it)
+                                        }) {
+                                            Icon(
+                                                painterResource(R.drawable.outline_delete_24),
+                                                null
+                                            )
+                                        }
+                                        TextButton({ videoView?.seekTo(it.time) }) {
+                                            Text(
+                                                "在${
+                                                    (it.time / 60000).toString().padStart(2, '0')
+                                                }:${
+                                                    (it.time.toFloat() / 1000 % 60).toInt()
+                                                        .toString()
+                                                        .padStart(2, '0')
+                                                }"
+                                            )
+                                        }
                                     }
                                 }
                             }
-                        }
-                    }
-                }
-                Spacer(Modifier.weight(1f))
-                AnimatedVisibility(delArea) {
-                    Card(
-                        Modifier
-                            .fillMaxHeight()
-                            .width(30.dp), colors = CardDefaults.cardColors(
-                            containerColor = Color(
-                                0xFFFA4D4D
-                            )
-                        )
-                    ) {
-                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Icon(Icons.Default.Delete, null, tint = Color.White)
                         }
                     }
                 }
