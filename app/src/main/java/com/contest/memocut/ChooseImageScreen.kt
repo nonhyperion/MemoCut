@@ -73,7 +73,7 @@ fun ChooseImageScreen(model: MainViewModel, uri: Uri) {
             }
             Button({
                 model.canUseImage = uriList.toMutableStateList()
-                model.push { AskScreen(model, uri, uriList) }
+                model.push { AskScreen(model, uri) }
             }, enabled = uriList.isNotEmpty()) {
                 Text("下一步")
             }

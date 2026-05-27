@@ -88,20 +88,21 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.zIndex
 import androidx.core.net.toUri
 import kotlinx.coroutines.Runnable
+import kotlinx.coroutines.delay
 import kotlin.math.min
 
 @Composable
-fun AskScreen(model: MainViewModel, videoUri: Uri, imageUri: List<Uri>) {
+fun AskScreen(model: MainViewModel, videoUri: Uri) {
     val context = LocalContext.current
     var videoDuration by remember { mutableIntStateOf(1) }
     var videoViewSize by remember { mutableStateOf(IntSize.Zero) }
-    var position by remember { mutableIntStateOf(0) }
     var videoView: VideoView? by remember { mutableStateOf(null) }
     var videoViewPos by remember { mutableStateOf(Rect.Zero) }
     var isPlaying by remember { mutableStateOf(false) }
     var addMenu by remember { mutableStateOf(false) }
     var checkDialog by remember { mutableStateOf(false) }
     var placeImage by remember { mutableStateOf<Sticker?>(null) }
+    var videoViewScale by remember { mutableStateOf(1f) }
     val configuration = LocalConfiguration.current
     val density = LocalDensity.current
     var imageSize by remember {
@@ -112,8 +113,14 @@ fun AskScreen(model: MainViewModel, videoUri: Uri, imageUri: List<Uri>) {
             )
         })
     }
-
-
+    LaunchedEffect(videoViewSize) {
+        delay(200)
+        videoView?.seekTo(model.position)
+        while (true) {
+            model.position = videoView?.currentPosition ?: 0
+            delay(100)
+        }
+    }
 
     if (checkDialog)
         AlertDialog(
@@ -158,7 +165,7 @@ fun AskScreen(model: MainViewModel, videoUri: Uri, imageUri: List<Uri>) {
                 .background(Color.White),
         ) {
             for (i in model.stickers) {
-                if (position in i.time..(i.time + 5000))
+                if (model.position in i.time..(i.time + 5000))
                     UriImage(
                         i.uri, context, null, modifier = Modifier
                             .size(with(density) {
@@ -169,7 +176,7 @@ fun AskScreen(model: MainViewModel, videoUri: Uri, imageUri: List<Uri>) {
                                 } else {
                                     Dp.Infinity // 或直接跳過
                                 }
-                                (150.dp * i.scale.value).coerceIn(
+                                (150.dp * i.scale.value * videoViewScale).coerceIn(
                                     1.dp,
                                     maxDp
                                 )
@@ -186,6 +193,9 @@ fun AskScreen(model: MainViewModel, videoUri: Uri, imageUri: List<Uri>) {
                                             1f - (imageSize.width * i.scale.value / videoViewSize.width)
                                             // (videoViewSize.width - imageSize.width).toFloat()
                                         )
+                                    println(imageSize.height)
+                                    println(videoViewSize.height)
+                                    println((imageSize.height * i.scale.value / videoViewSize.height))
                                     val y =
                                         (i.offset.value.y + pan.y / videoViewSize.height.toFloat()).coerceIn(
                                             0f,
@@ -197,7 +207,10 @@ fun AskScreen(model: MainViewModel, videoUri: Uri, imageUri: List<Uri>) {
                                     val oldScale = i.scale.value
                                     val newScale = (i.scale.value * zoom).coerceIn(
                                         0.5f,
-                                        min(videoViewSize.width, videoViewSize.height) / with(
+                                        min(
+                                            model.videoViewOSize.width,
+                                            model.videoViewOSize.height
+                                        ) / with(
                                             density
                                         ) { 150.dp.toPx() })
 
@@ -223,14 +236,6 @@ fun AskScreen(model: MainViewModel, videoUri: Uri, imageUri: List<Uri>) {
                         setOnPreparedListener {
                             videoDuration = duration
                             videoView = this
-                            val handler = Handler(Looper.getMainLooper())
-                            val runnable = object : Runnable {
-                                override fun run() {
-                                    position = currentPosition
-                                    handler.postDelayed(this, 10)
-                                }
-                            }
-                            handler.post(runnable)
                         }
                         setOnCompletionListener {
                             isPlaying = false
@@ -240,6 +245,11 @@ fun AskScreen(model: MainViewModel, videoUri: Uri, imageUri: List<Uri>) {
                     .onGloballyPositioned { videoViewPos = it.boundsInWindow() }
                     .onSizeChanged {
                         videoViewSize = it
+                        if (model.isO < 2) {
+                            model.videoViewOSize = it
+                            model.isO++
+                        }
+                        videoViewScale = it.height.toFloat() / model.videoViewOSize.height.toFloat()
                     }
             )
         }
@@ -340,7 +350,7 @@ fun AskScreen(model: MainViewModel, videoUri: Uri, imageUri: List<Uri>) {
                                             val img =
                                                 Sticker(
                                                     it,
-                                                    position,
+                                                    model.position,
                                                     mutableStateOf(Offset(0f, y)),
                                                     mutableFloatStateOf(1f)
                                                 )
@@ -350,7 +360,7 @@ fun AskScreen(model: MainViewModel, videoUri: Uri, imageUri: List<Uri>) {
                                                 img.offset.value += offset
                                             }, onDragEnd = {
 //                                                if (model.stickers.firstOrNull { e -> e.uri == it } == null && model.stickers.find { it.time in (position - 1)..(position + 1) } == null) {
-                                                if (videoViewPos.contains(img.offset.value) && model.stickers.find { it.time in (position - 1)..(position + 1) } == null)
+                                                if (videoViewPos.contains(img.offset.value) && model.stickers.find { it.time in (model.position - 1)..(model.position + 1) } == null)
                                                     model.stickers += img.copy(
                                                         offset = mutableStateOf(
                                                             Offset(
@@ -456,13 +466,16 @@ fun AskScreen(model: MainViewModel, videoUri: Uri, imageUri: List<Uri>) {
                             Thread.sleep(200)
                             videoView?.pause()
                         },
-                        position / videoDuration.toFloat(),
+                        model.position / videoDuration.toFloat(),
                         modifier = Modifier.fillMaxWidth(.95f)
                     )
                     Text(
                         "${
-                            (position / 60000).toString().padStart(2, '0')
-                        }:${(position.toFloat() / 1000 % 60).toInt().toString().padStart(2, '0')}"
+                            (model.position / 60000).toString().padStart(2, '0')
+                        }:${
+                            (model.position.toFloat() / 1000 % 60).toInt().toString()
+                                .padStart(2, '0')
+                        }"
                     )
                 }
             }
